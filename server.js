@@ -1,76 +1,74 @@
-// components/MoneyDisplay.jsx
-import { useState, useEffect } from 'react';
+const WebSocket = require('ws');
+const wss = new WebSocket.Server({ port: 8080 });
 
-export default function MoneyDisplay() {
-  const [money, setMoney] = useState(0);
-  const [socket, setSocket] = useState(null);
+// 모든 플레이어의 정보를 저장할 곳
+let players = {};
+let nextPlayerId = 1;
 
-  useEffect(() => {
-    // Render 서버 주소로 웹소켓 연결
-    const ws = new WebSocket('wss://my-metaverse-server.onrender.com');
-
-    ws.onopen = () => {
-      console.log('서버에 성공적으로 접속했습니다.');
-      setSocket(ws);
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        console.log('서버로부터 받은 메시지:', data);
-
-        // 서버로부터 돈 업데이트 메시지를 받으면
-        if (data.action === 'update_money') {
-          setMoney(data.money);
-        }
-      } catch (error) {
-        console.error('메시지 파싱 오류:', error);
-      }
-    };
-
-    ws.onclose = () => {
-      console.log('서버와의 연결이 끊어졌습니다.');
-      setSocket(null);
-    };
-
-    // 컴포넌트가 언마운트될 때 웹소켓 연결을 닫습니다.
-    return () => {
-      ws.close();
-    };
-  }, []); // 이 useEffect는 컴포넌트가 처음 렌더링될 때 한 번만 실행됩니다.
-
-  const handlePurchase = (amount) => {
-    if (socket) {
-      const message = {
-        action: 'purchase',
-        amount: amount,
-      };
-      socket.send(JSON.stringify(message));
-    } else {
-      console.log('소켓이 연결되지 않았습니다.');
-    }
+wss.on('connection', ws => {
+  const playerId = nextPlayerId++;
+  players[playerId] = {
+    ws: ws,
+    money: 10000 // 초기 자금 10000원
   };
+  console.log(`새로운 클라이언트 (ID: ${playerId})가 접속했습니다.`);
 
-  return (
-    <div className="p-8 bg-gray-100 rounded-lg">
-      <h2 className="text-2xl font-bold">내 자산</h2>
-      <p className="text-4xl my-4">{money.toLocaleString()}원</p>
-      <div className="flex space-x-2">
-        <button
-          onClick={() => handlePurchase(100)}
-          className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-          disabled={!socket}
-        >
-          100원짜리 음료수 구매
-        </button>
-        <button
-          onClick={() => handlePurchase(500)}
-          className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
-          disabled={!socket}
-        >
-          500원짜리 과자 구매
-        </button>
-      </div>
-    </div>
-  );
-}
+  // 접속한 클라이언트에게 현재 돈 상태를 보내줌
+  const initialState = {
+    action: 'update_money',
+    money: players[playerId].money
+  };
+  ws.send(JSON.stringify(initialState));
+
+  // 메시지 수신 시 로직
+  ws.on('message', message => {
+    console.log(`클라이언트 (ID: ${playerId})로부터 받은 메시지: ${message}`);
+
+    try {
+      const data = JSON.parse(message);
+
+      switch (data.action) {
+        case 'purchase':
+          const cost = data.amount || 0;
+          if (players[playerId].money >= cost) {
+            players[playerId].money -= cost;
+            console.log(`ID ${playerId}의 자산이 ${cost}만큼 차감되어 현재 ${players[playerId].money}원 입니다.`);
+
+            // 변경된 돈 상태를 모든 클라이언트에게 전파
+            const updateState = {
+              action: 'update_money',
+              money: players[playerId].money
+            };
+
+            // 모든 접속자에게 잔액 변경 전송
+            for (const id in players) {
+              if (players[id].ws.readyState === WebSocket.OPEN) {
+                players[id].ws.send(JSON.stringify(updateState));
+              }
+            }
+
+          } else {
+            console.log(`ID ${playerId}의 자산이 부족하여 구매에 실패했습니다.`);
+          }
+          break;
+
+        // "Unreal says Hello!" 같은 테스트 메시지 처리
+        default:
+          // 받은 메시지를 그대로 되돌려주는 에코(echo) 기능 추가
+          ws.send(message.toString());
+          break;
+      }
+    } catch (error) {
+      console.error('잘못된 JSON 형식의 메시지입니다:', error);
+      // JSON 파싱 실패 시 받은 메시지를 그대로 에코
+      ws.send(message.toString());
+    }
+  });
+
+  ws.on('close', () => {
+    console.log(`클라이언트 (ID: ${playerId})의 접속이 끊어졌습니다.`);
+    delete players[playerId];
+  });
+});
+
+console.log('🚀 v2 머니 시스템이 8080 포트에서 당신을 기다리고 있어요...');
