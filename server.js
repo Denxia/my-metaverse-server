@@ -1,39 +1,76 @@
-// 1. 우리가 설치한 'ws'라는 부품(라이브러리)을 가져옵니다.
-const WebSocket = require('ws');
+// components/MoneyDisplay.jsx
+import { useState, useEffect } from 'react';
 
-// 2. 8080번 포트를 사용하는 웹소켓 서버를 만듭니다.
-//    포트는 우리 집의 여러 개의 문 중 하나라고 생각하면 쉽습니다. 8080번 문으로만 손님(클라이언트)을 받겠다는 뜻입니다.
-const wss = new WebSocket.Server({ port: 8080 });
+export default function MoneyDisplay() {
+  const [money, setMoney] = useState(0);
+  const [socket, setSocket] = useState(null);
 
-// 3. 'wss' 즉, 우리 서버에 누군가 접속(connection)을 시도하면 어떤 행동을 할지 정의합니다.
-wss.on('connection', ws => {
-  // 'ws'는 접속한 한 명의 클라이언트를 의미합니다.
+  useEffect(() => {
+    // Render 서버 주소로 웹소켓 연결
+    const ws = new WebSocket('wss://my-metaverse-server.onrender.com');
 
-  console.log('새로운 클라이언트가 접속했습니다.'); // 서버 관리자만 볼 수 있는 로그
+    ws.onopen = () => {
+      console.log('서버에 성공적으로 접속했습니다.');
+      setSocket(ws);
+    };
 
-  // 4. 접속한 클라이언트로부터 메시지(message)가 도착했을 때 어떤 행동을 할지 정의합니다.
-  ws.on('message', message => {
-    console.log(`클라이언트로부터 받은 메시지: ${message}`);
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        console.log('서버로부터 받은 메시지:', data);
 
-    // 여기서 가장 중요한 부분!
-    // 메시지를 보낸 클라이언트에게만 답장하는 게 아니라,
-    // 우리 서버에 접속된 "모든" 클라이언트에게 받은 메시지를 그대로 다시 보내줍니다. (브로드캐스팅)
-    wss.clients.forEach(client => {
-      // 접속된 클라이언트들(wss.clients)을 한 명씩(client) 돌아가면서
-      if (client.readyState === WebSocket.OPEN) { // 클라이언트의 상태가 '연결 중'일 때만
-        client.send(message.toString()); // 받은 메시지를 그대로 보내준다.
+        // 서버로부터 돈 업데이트 메시지를 받으면
+        if (data.action === 'update_money') {
+          setMoney(data.money);
+        }
+      } catch (error) {
+        console.error('메시지 파싱 오류:', error);
       }
-    });
-  });
+    };
 
-  // 5. 클라이언트의 접속이 끊어졌을 때(close) 어떤 행동을 할지 정의합니다.
-  ws.on('close', () => {
-    console.log('클라이언트 한 명의 접속이 끊어졌습니다.');
-  });
+    ws.onclose = () => {
+      console.log('서버와의 연결이 끊어졌습니다.');
+      setSocket(null);
+    };
 
-  // 6. 접속 직후 환영 메시지를 보내줍니다.
-  ws.send('메타버스 서버에 오신 것을 환영합니다!');
-});
+    // 컴포넌트가 언마운트될 때 웹소켓 연결을 닫습니다.
+    return () => {
+      ws.close();
+    };
+  }, []); // 이 useEffect는 컴포넌트가 처음 렌더링될 때 한 번만 실행됩니다.
 
-// 서버가 잘 켜졌는지 확인하기 위한 로그
-console.log('🚀 서버가 8080 포트에서 당신을 기다리고 있어요...');
+  const handlePurchase = (amount) => {
+    if (socket) {
+      const message = {
+        action: 'purchase',
+        amount: amount,
+      };
+      socket.send(JSON.stringify(message));
+    } else {
+      console.log('소켓이 연결되지 않았습니다.');
+    }
+  };
+
+  return (
+    <div className="p-8 bg-gray-100 rounded-lg">
+      <h2 className="text-2xl font-bold">내 자산</h2>
+      <p className="text-4xl my-4">{money.toLocaleString()}원</p>
+      <div className="flex space-x-2">
+        <button
+          onClick={() => handlePurchase(100)}
+          className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+          disabled={!socket}
+        >
+          100원짜리 음료수 구매
+        </button>
+        <button
+          onClick={() => handlePurchase(500)}
+          className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
+          disabled={!socket}
+        >
+          500원짜리 과자 구매
+        </button>
+      </div>
+    </div>
+  );
+}
